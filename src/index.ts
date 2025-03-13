@@ -1,16 +1,29 @@
 import { ApolloServer } from "@apollo/server";
-// import { startStandaloneServer } from "@apollo/server/standalone";
-
 import { expressMiddleware } from "@apollo/server/express4";
 import express from "express";
+import jwt from "jsonwebtoken";
+
+import {
+  bookSchemaTypes,
+  bookSchemaQueries,
+  bookSchemaMutations,
+} from "../src/modules/book/graphql/schema";
+
+import {
+  userSchemaTypes,
+  userSchemaMutations,
+} from "../src/modules/auth/graphql/schema";
+
+import { bookQueries } from "../src/modules/book/graphql/queries";
+
+import { bookMutations } from "./modules/book/graphql/mutations";
+import { bookCustomResolvers } from "./modules/book/graphql/resolver";
+
+import { Context } from "../src/modules/utils/@types";
+import { Book } from "./modules/book/@types";
+import { userMutations } from "./modules/auth/graphql/mutations";
 
 const app = express();
-
-interface Book {
-  title: string;
-  author: string;
-  authorAndTitle?: string;
-}
 
 interface Player {
   firstName: string;
@@ -21,44 +34,28 @@ interface Player {
 }
 
 const typeDefs = `
-    type Book {
-      title : String
-      author: String
-      
-      authorAndTitle: String
-    }
-      
-    type Player {
-      firstName: String
-      age: Int
-      height: Float
-      active: Boolean
-      
-      favoriteBooks: [Book]
-    }
-      
-    type Query {
-      books: [Book]
-      book(title: String!): Book
-      
-      players: [Player]
-    }
-      
-    type Mutation {
-      bookAdd(title: String!, author: String!): String
-    }
-`;
+  ${bookSchemaTypes}
+  ${userSchemaTypes}
 
-const books: Book[] = [
-  {
-    title: "The Awaksdsening",
-    author: "Kate Chopin",
-  },
-  {
-    title: "City of Glass",
-    author: "Paul Auster",
-  },
-];
+  type Player {
+    firstName: String
+    age: Int
+    height: Float
+    active: Boolean
+
+    favoriteBooks: [Book]
+  }
+    
+  type Query {
+    ${bookSchemaQueries}
+    players: [Player]
+  }
+
+  type Mutation {
+    ${bookSchemaMutations}
+    ${userSchemaMutations}
+  }
+`;
 
 const players: Player[] = [
   {
@@ -66,19 +63,13 @@ const players: Player[] = [
     age: 18,
     active: true,
     height: 6.7,
-    favoriteBooks: ["the Awaksdsening", "City of Glass"],
+    favoriteBooks: ["The Awaksdsening", "City of Glass"],
   },
 ];
 
 const resolvers = {
   Query: {
-    books: () => {
-      return books;
-    },
-
-    book: (_parent: undefined, args: { title: string }) => {
-      return books.find((book) => book.title === args.title);
-    },
+    ...bookQueries,
 
     players: () => {
       return players;
@@ -86,61 +77,53 @@ const resolvers = {
   },
 
   Mutation: {
-    bookAdd: (_parent: undefined, args: { title: string; author: string }) => {
-      books.push(args);
-
-      return "Nom amjilttai nemlee";
-    },
+    ...bookMutations,
+    ...userMutations,
   },
 
   Book: {
-    authorAndTitle: (parent: Book) => {
-      return `${parent.author} ${parent.title}`;
-    },
+    ...bookCustomResolvers,
   },
 
   Player: {
     favoriteBooks: (parent: Player) => {
       const favoriteBooks: Book[] = [];
 
-      parent.favoriteBooks?.forEach((favoriteBook) => {
-        const book = books.find((book) => book.title === favoriteBook) as Book;
-
-        favoriteBooks.push(book);
-      });
-
       return favoriteBooks;
     },
   },
 };
 
-const server = new ApolloServer({
+const server = new ApolloServer<Context>({
   typeDefs,
   resolvers,
-});
-
-app.get("/books", (_req, res) => {
-  const newBooks = books.map((books: any) => {
-    books.authorAndTitle = `${books.author} ${books.title}`;
-    return books;
-  });
-
-  return newBooks;
-});
-
-app.get("/book", (_req, res) => {
-  const newBooks = books.map((book: any) => {
-    book.authorAndTitle = `${book.author} ${book.title}`;
-    return book;
-  });
-
-  res.send(newBooks[0]);
 });
 
 const startServer = async () => {
   await server.start();
 
-  app.use("/graphql", express.json(), expressMiddleware(server));
+  app.use(
+    "/graphql",
+    express.json(),
+    expressMiddleware(server, {
+      context: async ({ req, res }) => {
+        const token = req.headers.authorization;
+
+        console.log(token);
+
+        if (token) {
+          try {
+            const tokendata = jwt.verify(token, "secret") as any;
+            return { user: tokendata?.user };
+          } catch {
+            return { user: null };
+          }
+        }
+
+        return { user: null };
+      },
+    })
+  );
 
   app.listen(4000, () => {
     console.log("server started on 4000");
