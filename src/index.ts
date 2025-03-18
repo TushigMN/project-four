@@ -2,102 +2,67 @@ import { ApolloServer } from "@apollo/server";
 import { expressMiddleware } from "@apollo/server/express4";
 import express from "express";
 import jwt from "jsonwebtoken";
-
-import {
-  bookSchemaTypes,
-  bookSchemaQueries,
-  bookSchemaMutations,
-} from "../src/modules/book/graphql/schema";
-
-import {
-  userSchemaTypes,
-  userSchemaMutations,
-} from "../src/modules/auth/graphql/schema";
-
-import { bookQueries } from "../src/modules/book/graphql/queries";
-
-import { bookMutations } from "./modules/book/graphql/mutations";
-import { bookCustomResolvers } from "./modules/book/graphql/resolver";
-
+import mongoose from "mongoose";
+import dotenv from "dotenv";
 import { Context } from "../src/modules/utils/@types";
-import { Book } from "./modules/book/@types";
-import { userMutations } from "./modules/auth/graphql/mutations";
+import Users from "./modules/player/models/userModel";
+
+dotenv.config();
 
 const app = express();
 
-interface Player {
-  firstName: string;
-  age: number;
-  height: number;
-  active: boolean;
-  favoriteBooks?: String[];
-}
-
 const typeDefs = `
-  ${bookSchemaTypes}
-  ${userSchemaTypes}
-
-  type Player {
-    firstName: String
-    age: Int
-    height: Float
-    active: Boolean
-
-    favoriteBooks: [Book]
-  }
-    
   type Query {
-    ${bookSchemaQueries}
-    players: [Player]
+    test: String
   }
 
   type Mutation {
-    ${bookSchemaMutations}
-    ${userSchemaMutations}
+    register(password: String, userName: String, email: String): Boolean
+    login(password: String, email: String): String
   }
 `;
 
-const players: Player[] = [
-  {
-    firstName: "Bat",
-    age: 18,
-    active: true,
-    height: 6.7,
-    favoriteBooks: ["The Awaksdsening", "City of Glass"],
-  },
-];
-
 const resolvers = {
   Query: {
-    ...bookQueries,
-
-    players: () => {
-      return players;
+    test() {
+      return "test";
     },
   },
-
   Mutation: {
-    ...bookMutations,
-    ...userMutations,
-  },
-
-  Book: {
-    ...bookCustomResolvers,
-  },
-
-  Player: {
-    favoriteBooks: (parent: Player) => {
-      const favoriteBooks: Book[] = [];
-
-      return favoriteBooks;
+    async register(
+      _parent: undefined,
+      {
+        password,
+        userName,
+        email,
+      }: { password: string; userName: string; email: string }
+    ) {
+      return await Users.register({ password, userName, email });
+    },
+    async login(
+      _parent: undefined,
+      { password, email }: { password: string; email: string }
+    ) {
+      return await Users.login({ password, email });
     },
   },
 };
+
+mongoose
+  .connect(process.env.MONGO_URL || "")
+  .then(() => {
+    console.log("connected to db");
+  })
+  .catch((err) => {
+    console.error("err");
+  });
 
 const server = new ApolloServer<Context>({
   typeDefs,
   resolvers,
 });
+
+app.use(express.json());
 
 const startServer = async () => {
   await server.start();
@@ -108,8 +73,6 @@ const startServer = async () => {
     expressMiddleware(server, {
       context: async ({ req, res }) => {
         const token = req.headers.authorization;
-
-        console.log(token);
 
         if (token) {
           try {
